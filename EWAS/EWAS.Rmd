@@ -1,0 +1,559 @@
+---
+title: "EWAS Entorhinal Cortex"
+author: "Aisha Dahir"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load data, warning = FALSE, message= FALSE}
+library(dplyr)
+library(tidyr)
+library(qqman)
+library(gldrm)
+library(ggplot2)
+library(gridExtra)
+library(kableExtra)
+setwd("/mnt/data1/Dementia_Mouse/Array/EWAS/ECX/")
+load("/mnt/data1/Dementia_Mouse/Array/Normalised_Data_Sesame.rdat")
+manifest <- read.csv("/mnt/data1/Dementia_Mouse/Array/Mouse_Array_CpG_manifest.csv", stringsAsFactors = F, header = T)
+
+J20 <- read.csv("../../J20_coldata_VertebrateArray.csv", stringsAsFactors = F, header = T)
+Tg4510 <- read.csv("../../Tg4510_coldata_VertebrateArray.csv", stringsAsFactors = F, header = T)
+
+## Add model in the first colum to match pheno file later
+J20$ExternalSampleID <- paste("J20_", J20$Sample_ID_ECX, sep = "")
+Tg4510$ExternalSampleID <- paste("rTg4510_", Tg4510$Sample_ID_ECX, sep  ="")
+
+
+pheno <- QCmetrics
+betas <- Normalised_Sesame_Betas
+
+pheno <- pheno[order(rownames(pheno)),]
+betas <- betas[,order(colnames(betas))]
+print(identical(rownames(pheno), colnames(betas)))
+
+#binf the pathology data to pheno file
+path <- rbind(J20, Tg4510)
+pheno <- merge(path,pheno, by = "ExternalSampleID")
+
+# make a basename, and into rownames
+pheno$Basename <- paste(pheno$Chip_ID, pheno$Chip_Position, sep = "_")
+rownames(pheno) <- pheno$Basename
+
+
+#split data into mouse model to carry seperate EWAS's
+phenoJ20 <- pheno[which(pheno$AD_model == "J20"),]
+phenoTg4510 <- pheno[which(pheno$AD_model == "rTg4510"),]
+
+betasJ20 <- betas[, colnames(betas) %in% phenoJ20$Basename]
+betasTg4510 <- betas[, colnames(betas) %in% phenoTg4510$Basename]
+
+```
+
+
+
+## Genotype
+
+First we will look at difference in methylation for different genotypes - transgenic and wildtype mouse. Age and chip are covariates, sex is controlled for as all samples are female. For the meantime, pathology and age interaction will not be included.
+
+$${Methylation } = {Genotype + Age + Chip}$$
+
+### J20
+
+There are two AD models, one which is J20. J20 mouse model the amyloid disease progression. Mean difference is from 
+
+```{r J20 Genotype, warning=F, message=F}
+# betasJ20 <- as.matrix(betasJ20)
+# res<-matrix(data = NA, nrow = nrow(betasJ20), ncol = 3)
+# colnames(res)<-c("Genotype_Beta", "Genotype_SE", "Genotype_P")
+# rownames(res)<-rownames(betasJ20)
+# phenoJ20$Genotype.x <- factor(phenoJ20$Genotype.x, levels = c("WT", "TG"))
+# # make WT the reference/dummy varaible
+# for(i in 1:nrow(betasJ20)){
+#       model <-lm(betasJ20[i,] ~ factor(phenoJ20$Genotype.x) + factor(phenoJ20$Age_months) + factor(phenoJ20$Chip_ID))
+#     res[i,1]<-coefficients(model)["factor(phenoJ20$Genotype.x)TG" ]
+#     res[i,2]<-summary(model)$coefficients["factor(phenoJ20$Genotype.x)TG",2]
+#     res[i,3]<-summary(model)$coefficients["factor(phenoJ20$Genotype.x)TG",4]
+#     }
+# head(res)
+# # As the beta values here represent proportion of DNA methylation (i.e. they lie between 0 and 1), the regression coefficients represent the change in proportion.
+# # Typically we report our findings on the % scale therefore we will multiple the regression coefficients and SE by 100.
+# # This will need to be done for all variables for which you saved the results.
+# res[,"Genotype_Beta"]<-res[,"Genotype_Beta"]*100
+# res[,"Genotype_SE"]<-res[,"Genotype_SE"]*100
+# res_J20 <- as.data.frame(res)
+
+# write.csv(res_J20, "LM_J20_Genotype.csv")
+
+```
+
+```{r J20 Genotype qqman&manhattan, warning=F, message=F, fig.show='hold',out.weight="50%"}
+res_J20 <- read.csv("LM_J20_Genotype.csv", stringsAsFactors = F, header = T)
+
+colnames(res_J20)[colnames(res_J20) == 'X'] <- 'cpg'
+resJ20_mani <- merge(res_J20, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_J20)
+
+resJ20_mani <- resJ20_mani[-which(resJ20_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resJ20_mani$Chr <- as.numeric(as.character(resJ20_mani$Chr))
+resJ20_mani$Bp <- as.numeric(resJ20_mani$Bp)
+
+
+manhattan(resJ20_mani, p = "Genotype_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "J20 WT vs TG")
+
+lamda <- qchisq(1-median(res_J20$Genotype_P),1)/qchisq(0.5,1)
+
+qq(res_J20$Genotype_P, main = "J20 WT vs TG")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+```{r J20 Geno table, warning=F, message = F}
+
+
+
+```
+
+### rTg4510
+
+rTg4510 (Tg4510) is another Ad model for Tau plaques in the brain. A genotype EWAS WT vs TG will be carried out, where the mean difference is WT to TG. 
+
+```{r Tg4510 Genotype, warning=F, message=F}
+# betasTg4510 <- as.matrix(betasTg4510)
+# res<-matrix(data = NA, nrow = nrow(betasTg4510), ncol = 3)
+# colnames(res)<-c("Genotype_Beta", "Genotype_SE", "Genotype_P")
+# rownames(res)<-rownames(betasTg4510)
+# phenoTg4510$Genotype.x <- factor(phenoTg4510$Genotype.x, levels = c("WT", "TG"))
+# # make WT the reference/dummy varaible
+# for(i in 1:nrow(betasTg4510)){
+#       model <-lm(betasTg4510[i,] ~ factor(phenoTg4510$Genotype.x) + factor(phenoTg4510$Age_months) + factor(phenoTg4510$Chip_ID))
+#     res[i,1]<-coefficients(model)["factor(phenoTg4510$Genotype.x)TG" ]
+#     res[i,2]<-summary(model)$coefficients["factor(phenoTg4510$Genotype.x)TG",2]
+#     res[i,3]<-summary(model)$coefficients["factor(phenoTg4510$Genotype.x)TG",4]
+#     }
+# head(res)
+# # As the beta values here represent proportion of DNA methylation (i.e. they lie between 0 and 1), the regression coefficients represent the change in proportion.
+# # Typically we report our findings on the % scale therefore we will multiple the regression coefficients and SE by 100.
+# # This will need to be done for all variables for which you saved the results.
+# res[,"Genotype_Beta"]<-res[,"Genotype_Beta"]*100
+# res[,"Genotype_SE"]<-res[,"Genotype_SE"]*100
+# res_Tg4510 <- as.data.frame(res)
+
+# write.csv(res_Tg4510, "LM_Tg4510_Genotype.csv")
+
+```
+
+```{r Tg4510 Genotype qqman&manhattan, warning=F, message=F, fig.show='hold',out.weight="50%"}
+res_Tg4510 <- read.csv("LM_Tg4510_Genotype.csv", stringsAsFactors = F, header = T)
+
+colnames(res_Tg4510)[colnames(res_Tg4510) == 'X'] <- 'cpg'
+resTg4510_mani <- merge(res_Tg4510, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_Tg4510)
+
+resTg4510_mani <- resTg4510_mani[-which(resTg4510_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resTg4510_mani$Chr <- as.numeric(as.character(resTg4510_mani$Chr))
+resTg4510_mani$Bp <- as.numeric(resTg4510_mani$Bp)
+
+
+manhattan(resTg4510_mani, p = "Genotype_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "Tg4510 WT vs TG")
+
+lamda <- qchisq(1-median(res_Tg4510$Genotype_P),1)/qchisq(0.5,1)
+
+qq(res_Tg4510$Genotype_P, main = "Tg4510 WT vs TG")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+## Genotype and Chip
+
+$${Methylation } = {Genotype + Chip}$$
+
+### J20
+
+```{r J20 Geno+chip, warning = F, header = T}
+# betasJ20 <- as.matrix(betasJ20)
+# res<-matrix(data = NA, nrow = nrow(betasJ20), ncol = 3)
+# colnames(res)<-c("Genotype_Beta", "Genotype_SE", "Genotype_P")
+# rownames(res)<-rownames(betasJ20)
+# phenoJ20$Genotype.x <- factor(phenoJ20$Genotype.x, levels = c("WT", "TG"))
+# for(i in 1:nrow(betasJ20)){
+#       model <-lm(betasJ20[i,] ~ factor(phenoJ20$Genotype.x) + factor(phenoJ20$Chip_ID))
+#     res[i,1]<-coefficients(model)["factor(phenoJ20$Genotype.x)TG" ]
+#     res[i,2]<-summary(model)$coefficients["factor(phenoJ20$Genotype.x)TG",2]
+#     res[i,3]<-summary(model)$coefficients["factor(phenoJ20$Genotype.x)TG",4]
+#     }
+# head(res)
+# res[,"Genotype_Beta"]<-res[,"Genotype_Beta"]*100
+# res[,"Genotype_SE"]<-res[,"Genotype_SE"]*100
+# res_J20_path <- as.data.frame(res)
+# 
+# write.csv(res_J20_path, "LM_J20_Genotype_inc_chip_only.csv")
+```
+
+```{r J20 Geno+chip vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_J20_path <- read.csv("LM_J20_Genotype_inc_chip_only.csv", stringsAsFactors = F, header = T)
+
+colnames(res_J20_path)[colnames(res_J20_path) == 'X'] <- 'cpg'
+resJ20_path_mani <- merge(res_J20_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_J20_path)
+
+resJ20_path_mani <- resJ20_path_mani[-which(resJ20_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resJ20_path_mani$Chr <- as.numeric(as.character(resJ20_path_mani$Chr))
+resJ20_path_mani$Bp <- as.numeric(resJ20_path_mani$Bp)
+
+
+manhattan(resJ20_path_mani, p = "Genotype_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "J20 Genotype WT vs TG")
+
+lamda <- qchisq(1-median(res_J20_path$Genotype_P),1)/qchisq(0.5,1)
+
+qq(res_J20_path$Genotype_P, main = "J20 genotype WT vs TG")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+
+### rTg4150 
+
+```{r Tg4510 Geno+chip, warning = F, header = T}
+# betasTg4510 <- as.matrix(betasTg4510)
+# res<-matrix(data = NA, nrow = nrow(betasTg4510), ncol = 3)
+# colnames(res)<-c("Genotype_Beta", "Genotype_SE", "Genotype_P")
+# rownames(res)<-rownames(betasTg4510)
+# phenoTg4510$Genotype.x <- factor(phenoTg4510$Genotype.x, levels = c("WT", "TG"))
+# for(i in 1:nrow(betasTg4510)){
+#       model <-lm(betasTg4510[i,] ~ factor(phenoTg4510$Genotype.x) + factor(phenoTg4510$Chip_ID))
+#     res[i,1]<-coefficients(model)["factor(phenoTg4510$Genotype.x)TG" ]
+#     res[i,2]<-summary(model)$coefficients["factor(phenoTg4510$Genotype.x)TG",2]
+#     res[i,3]<-summary(model)$coefficients["factor(phenoTg4510$Genotype.x)TG",4]
+#     }
+# head(res)
+# res[,"Genotype_Beta"]<-res[,"Genotype_Beta"]*100
+# res[,"Genotype_SE"]<-res[,"Genotype_SE"]*100
+# res_Tg4510_path <- as.data.frame(res)
+# 
+# write.csv(res_Tg4510_path, "LM_Tg4510_Genotype_inc_chip_only.csv")
+```
+
+```{r Tg4510 Geno+chip vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_Tg4510_path <- read.csv("LM_Tg4510_Genotype_inc_chip_only.csv", stringsAsFactors = F, header = T)
+
+colnames(res_Tg4510_path)[colnames(res_Tg4510_path) == 'X'] <- 'cpg'
+resTg4510_path_mani <- merge(res_Tg4510_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_Tg4510_path)
+
+resTg4510_path_mani <- resTg4510_path_mani[-which(resTg4510_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resTg4510_path_mani$Chr <- as.numeric(as.character(resTg4510_path_mani$Chr))
+resTg4510_path_mani$Bp <- as.numeric(resTg4510_path_mani$Bp)
+
+
+manhattan(resTg4510_path_mani, p = "Genotype_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "Tg4510 Genotype WT vs TG")
+
+
+lamda <- qchisq(1-median(res_Tg4510_path$Genotype_P),1)/qchisq(0.5,1)
+
+qq(res_Tg4510_path$Genotype_P, main = "Tg4510 genotype WT vs TG")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+## Pathology and Chip
+
+$${Methylation } = {Pathology + Chip + Age}$$
+
+### J20
+
+```{r J20 Path, warning = F, header = T}
+# betasJ20 <- as.matrix(betasJ20)
+# res<-matrix(data = NA, nrow = nrow(betasJ20), ncol = 3)
+# colnames(res)<-c("Pathology_Beta", "Pathology_SE", "Pathology_P")
+# rownames(res)<-rownames(betasJ20)
+# for(i in 1:nrow(betasJ20)){
+#       model <-lm(betasJ20[i,] ~ phenoJ20$Pathology_ECX + factor(phenoJ20$Chip_ID) + factor(phenoJ20$Age_months))
+#     res[i,1]<-coefficients(model)["phenoJ20$Pathology_ECX" ]
+#     res[i,2]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",2]
+#     res[i,3]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",4]
+#     }
+# head(res)
+# 
+# res[,"Pathology_Beta"]<-res[,"Pathology_Beta"]*100
+# res[,"Pathology_SE"]<-res[,"Pathology_SE"]*100
+# 
+# res_J20_path <- as.data.frame(res)
+# 
+# write.csv(res_J20_path, "LM_J20_Pathology_age_chip.csv")
+```
+
+```{r J20 Path vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_J20_path <- read.csv("LM_J20_Pathology_age_chip.csv", stringsAsFactors = F, header = T)
+
+colnames(res_J20_path)[colnames(res_J20_path) == 'X'] <- 'cpg'
+resJ20_path_mani <- merge(res_J20_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_J20_path)
+
+resJ20_path_mani <- resJ20_path_mani[-which(resJ20_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resJ20_path_mani$Chr <- as.numeric(as.character(resJ20_path_mani$Chr))
+resJ20_path_mani$Bp <- as.numeric(resJ20_path_mani$Bp)
+
+
+manhattan(resJ20_path_mani, p = "Pathology_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "J20 Pathology")
+
+lamda <- qchisq(1-median(res_J20_path$Pathology_P),1)/qchisq(0.5,1)
+
+qq(res_J20_path$Pathology_P, main = "J20 Pathology")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+
+### rTg4150 
+
+```{r Tg4510 Path, warning = F, header = T}
+# betasTg4510 <- as.matrix(betasTg4510)
+# res<-matrix(data = NA, nrow = nrow(betasTg4510), ncol = 3)
+# colnames(res)<-c("Pathology_Beta", "Pathology_SE", "Pathology_P")
+# rownames(res)<-rownames(betasTg4510)
+# for(i in 1:nrow(betasTg4510)){
+#       model <-lm(betasTg4510[i,] ~ phenoTg4510$Pathology_ECX + factor(phenoTg4510$Chip_ID) + factor(phenoTg4510$Age_months))
+#     res[i,1]<-coefficients(model)["phenoTg4510$Pathology_ECX" ]
+#     res[i,2]<-summary(model)$coefficients["phenoTg4510$Pathology_ECX",2]
+#     res[i,3]<-summary(model)$coefficients["phenoTg4510$Pathology_ECX",4]
+#     }
+# head(res)
+# 
+# res[,"Pathology_Beta"]<-res[,"Pathology_Beta"]*100
+# res[,"Pathology_SE"]<-res[,"Pathology_SE"]*100
+# 
+# res_Tg4510_path <- as.data.frame(res)
+# 
+# write.csv(res_Tg4510_path, "LM_Tg4510_Pathology_age_chip.csv")
+```
+
+```{r Tg4510 Path vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_Tg4510_path <- read.csv("LM_Tg4510_Pathology_age_chip.csv", stringsAsFactors = F, header = T)
+
+colnames(res_Tg4510_path)[colnames(res_Tg4510_path) == 'X'] <- 'cpg'
+resTg4510_path_mani <- merge(res_Tg4510_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_Tg4510_path)
+
+resTg4510_path_mani <- resTg4510_path_mani[-which(resTg4510_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resTg4510_path_mani$Chr <- as.numeric(as.character(resTg4510_path_mani$Chr))
+resTg4510_path_mani$Bp <- as.numeric(resTg4510_path_mani$Bp)
+
+
+manhattan(resTg4510_path_mani, p = "Pathology_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "Tg4510 Pathology")
+
+
+lamda <- qchisq(1-median(res_Tg4510_path$Pathology_P),1)/qchisq(0.5,1)
+
+qq(res_Tg4510_path$Pathology_P, main = "Tg4510 Pathology")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+
+```
+
+
+
+## Pathology and Chip
+
+$${Methylation } = {Pathology + Chip}$$
+
+### J20
+
+```{r J20 Path+chip, warning = F, header = T}
+# betasJ20 <- as.matrix(betasJ20)
+# res<-matrix(data = NA, nrow = nrow(betasJ20), ncol = 3)
+# colnames(res)<-c("Pathology_Beta", "Pathology_SE", "Pathology_P")
+# rownames(res)<-rownames(betasJ20)
+# for(i in 1:nrow(betasJ20)){
+#       model <-lm(betasJ20[i,] ~ phenoJ20$Pathology_ECX + factor(phenoJ20$Chip_ID))
+#     res[i,1]<-coefficients(model)["phenoJ20$Pathology_ECX" ]
+#     res[i,2]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",2]
+#     res[i,3]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",4]
+#     }
+# head(res)
+# 
+# res[,"Pathology_Beta"]<-res[,"Pathology_Beta"]*100
+# res[,"Pathology_SE"]<-res[,"Pathology_SE"]*100
+# 
+# res_J20_path <- as.data.frame(res)
+# 
+# write.csv(res_J20_path, "LM_J20_Pathology_inc_chip_only.csv")
+```
+
+```{r J20 Path+chip vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_J20_path <- read.csv("LM_J20_Pathology_inc_chip_only.csv", stringsAsFactors = F, header = T)
+
+colnames(res_J20_path)[colnames(res_J20_path) == 'X'] <- 'cpg'
+resJ20_path_mani <- merge(res_J20_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_J20_path)
+
+resJ20_path_mani <- resJ20_path_mani[-which(resJ20_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resJ20_path_mani$Chr <- as.numeric(as.character(resJ20_path_mani$Chr))
+resJ20_path_mani$Bp <- as.numeric(resJ20_path_mani$Bp)
+
+
+manhattan(resJ20_path_mani, p = "Pathology_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "J20 Pathology")
+
+lamda <- qchisq(1-median(res_J20_path$Pathology_P),1)/qchisq(0.5,1)
+
+qq(res_J20_path$Pathology_P, main = "J20 Pathology")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+```
+
+
+### rTg4150 
+
+```{r Tg4510 Path+chip, warning = F, header = T}
+# betasTg4510 <- as.matrix(betasTg4510)
+# res<-matrix(data = NA, nrow = nrow(betasTg4510), ncol = 3)
+# colnames(res)<-c("Pathology_Beta", "Pathology_SE", "Pathology_P")
+# rownames(res)<-rownames(betasTg4510)
+# for(i in 1:nrow(betasTg4510)){
+#       model <-lm(betasTg4510[i,] ~ phenoTg4510$Pathology_ECX + factor(phenoTg4510$Chip_ID))
+#     res[i,1]<-coefficients(model)["phenoTg4510$Pathology_ECX" ]
+#     res[i,2]<-summary(model)$coefficients["phenoTg4510$Pathology_ECX",2]
+#     res[i,3]<-summary(model)$coefficients["phenoTg4510$Pathology_ECX",4]
+#     }
+# head(res)
+# 
+# res[,"Pathology_Beta"]<-res[,"Pathology_Beta"]*100
+# res[,"Pathology_SE"]<-res[,"Pathology_SE"]*100
+# 
+# res_Tg4510_path <- as.data.frame(res)
+# 
+# write.csv(res_Tg4510_path, "LM_Tg4510_Pathology_inc_chip_only.csv")
+```
+
+```{r Tg4510 Path+chip vis, warning = F, header = T, fig.show='hold',out.weight="50%"}
+
+res_Tg4510_path <- read.csv("LM_Tg4510_Pathology_inc_chip_only.csv", stringsAsFactors = F, header = T)
+
+colnames(res_Tg4510_path)[colnames(res_Tg4510_path) == 'X'] <- 'cpg'
+resTg4510_path_mani <- merge(res_Tg4510_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_Tg4510_path)
+
+resTg4510_path_mani <- resTg4510_path_mani[-which(resTg4510_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resTg4510_path_mani$Chr <- as.numeric(as.character(resTg4510_path_mani$Chr))
+resTg4510_path_mani$Bp <- as.numeric(resTg4510_path_mani$Bp)
+
+
+manhattan(resTg4510_path_mani, p = "Pathology_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "Tg4510 Pathology")
+
+
+lamda <- qchisq(1-median(res_Tg4510_path$Pathology_P),1)/qchisq(0.5,1)
+
+qq(res_Tg4510_path$Pathology_P, main = "Tg4510 Pathology")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+
+```
+
+
+## Pathology interacting with Age
+
+One of the problems with this study is that pathology increases with age. So this model is pathology and age interactionwith chip as covariate.
+
+$${Methylation } = {Pathology*Age + Chip}$$
+
+
+```{r J20 path+inter, warning=F, message=F}
+# betasJ20 <- as.matrix(betasJ20)
+# res<-matrix(data = NA, nrow = nrow(betasJ20), ncol = 9)
+# colnames(res)<-c("Pathology_Beta", "Pathology_SE", "Pathology_P",
+#                  "Age_Beta", "Age_SE", "Age_P",
+#                  "Pathology*Age_Beta","Pathology*Age_SE","Pathology*Age_P")
+# rownames(res)<-rownames(betasJ20)
+# for(i in 1:nrow(betasJ20)){
+#       model <-lm(betasJ20[i,] ~ phenoJ20$Pathology_ECX*phenoJ20$Age_months + factor(phenoJ20$Chip_ID))
+#     res[i,1]<-coefficients(model)["phenoJ20$Pathology_ECX" ]
+#     res[i,2]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",2]
+#     res[i,3]<-summary(model)$coefficients["phenoJ20$Pathology_ECX",4]
+#     res[i,4]<-coefficients(model)["phenoJ20$Age_months" ]
+#     res[i,5]<-summary(model)$coefficients["phenoJ20$Age_months",2]
+#     res[i,6]<-summary(model)$coefficients["phenoJ20$Age_months",4]
+#     res[i,7]<-coefficients(model)["phenoJ20$Pathology_ECX:phenoJ20$Age_months" ]
+#     res[i,8]<-summary(model)$coefficients["phenoJ20$Pathology_ECX:phenoJ20$Age_months",2]
+#     res[i,9]<-summary(model)$coefficients["phenoJ20$Pathology_ECX:phenoJ20$Age_months",4]
+#     }
+# head(res)
+# 
+# res[,"Pathology_Beta"]<-res[,"Pathology_Beta"]*100
+# res[,"Pathology_SE"]<-res[,"Pathology_SE"]*100
+# res[,"Age_Beta"]<-res[,"Age_Beta"]*100
+# res[,"Age_SE"]<-res[,"Age_SE"]*100
+# res[,"Pathology*Age_Beta"]<-res[,"Pathology*Age_Beta"]*100
+# res[,"Pathology*Age_SE"]<-res[,"Pathology*Age_SE"]*100
+# 
+# res <- as.data.frame(res)
+# write.csv(res, "LM_J20_path_age_interaction.csv")
+
+res_J20_path <- read.csv("LM_J20_path_age_interaction.csv", stringsAsFactors = F, header = T)
+
+colnames(res_J20_path)[colnames(res_J20_path) == 'X'] <- 'cpg'
+resJ20_path_mani <- merge(res_J20_path, manifest, by = "cpg")
+bonfP <- 0.05/nrow(res_J20_path)
+
+resJ20_path_mani <- resJ20_path_mani[-which(resJ20_path_mani$Chr %in% c("X", "CHR_MG51_PATCH",
+                                                      "CHR_MG4200_PATCH","Y","CHR_MG3699_PATCH")),]
+resJ20_path_mani$Chr <- as.numeric(as.character(resJ20_path_mani$Chr))
+resJ20_path_mani$Bp <- as.numeric(resJ20_path_mani$Bp)
+
+
+manhattan(resJ20_path_mani, p = "Pathology.Age_P", bp = "Bp", chr = "Chr", 
+          genomewide = -log10(bonfP), suggestiveline = -log10(5e-5), 
+          logp=T, col=c("black","dark grey"), main = "J20 Pathology")
+
+
+lamda <- qchisq(1-median(res_J20_path$Pathology.Age_P),1)/qchisq(0.5,1)
+
+qq(res_J20_path$Pathology.Age_P, main = "J20 Pathology*Age")
+mtext(paste("Lamda = ", signif(lamda,3)), side = 3, adj = 1)
+
+
+if(length(which(res_J20_path$Pathology.Age_P <  5e-5)) > 0){
+  sig_probes <- resJ20_path_mani[(which(resJ20_path_mani$Pathology.Age_P <  5e-5)),]
+  sig_probes2 <- sig_probes[,c(1,8,9,10,12,19)]
+  sig_probes2 <- sig_probes2[order(sig_probes2$Pathology.Age_P),]
+  rownames(sig_probes2) <- NULL
+  colnames(sig_probes2) <- c("Cpg", "Beta", "SE", "P", "Location", "Ensembl_Gene_Name")
+  kable(sig_probes2) %>%
+    kable_styling() %>%
+    scroll_box(width = "100%", height = "500px")
+}
+
+
+
+```
+
+
+
